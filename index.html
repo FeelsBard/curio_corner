@@ -19,6 +19,9 @@
     /* small helpers */
     .card-img{ background: #f1f5f9; }
   </style>
+  <!-- PapaParse for optional CSV data loading -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
 </head>
 <body class="min-h-screen bg-white text-slate-800">
   <div id="root"></div>
@@ -28,7 +31,8 @@
 
     // ---- 🔢 Data model (paste your entries here) ----
     // Tip: keep images in /images or use a CDN; always include permission/credit.
-    const STARTER_DATA = [
+    // Default in-file seed data (used as a fallback if no external data is provided)
+const DEFAULT_DATA = [
   {
     id: "alpha-devils-egg",
     set: "Alpha",
@@ -38,7 +42,7 @@
     variant_name: "alt title/art variant",
     tell_summary: "Title bar apostrophe difference (‘Devil’s Egg’ vs ‘Devils Egg’) and composition differences versus standard printing.",
     tell_details: "Community-documented Curio showing a missing apostrophe on some examples and subtle art/layout differences; compare to a standard Alpha Devil's Egg.",
-    front_image_url: "https://static.wixstatic.com/media/c1b4cf_0128e7004f544f2bb9c9698bf64b6d29~mv2.jpg/v1/fit/w_718%2Ch_958%2Cq_90%2Cenc_avif%2Cquality_auto/c1b4cf_0128e7004f544f2bb9c9698bf64b6d29~mv2.jpg",
+    front_image_url: "images/alpha-0001-front.jpg",
     back_image_url: "",
     comparison_image_url: "",
     source_url: "https://www.collectorarthouse.com/collectors-corner/curiocards",
@@ -61,7 +65,7 @@
     variant_name: "alternate art",
     tell_summary: "Artwork differs from the standard Alpha printing (composition/tones).",
     tell_details: "Listed in Alpha Curio archive as an alternate art Curio; compare to standard Death Dealer to spot composition differences.",
-    front_image_url: "https://static.wixstatic.com/media/c1b4cf_e8d9e0569ea84cf9b54066b79b09845f~mv2.jpg/v1/fit/w_365%2Ch_500%2Cq_90%2Cenc_avif%2Cquality_auto/c1b4cf_e8d9e0569ea84cf9b54066b79b09845f~mv2.jpg",
+    front_image_url: "images/death-dealer-front.jpg",
     back_image_url: "",
     comparison_image_url: "",
     source_url: "https://www.collectorarthouse.com/collectors-corner/curiocards",
@@ -84,7 +88,7 @@
     variant_name: "art/printing variant",
     tell_summary: "Visual/tonal differences in the cityscape compared to standard printing.",
     tell_details: "Appears in the Alpha Curio archive; compare windows/linework/tones to a pack-pulled standard copy.",
-    front_image_url: "https://static.wixstatic.com/media/c1b4cf_897f85275c664d40a0f4ef1b0e1c511c~mv2.jpg/v1/fit/w_718%2Ch_958%2Cq_90%2Cenc_avif%2Cquality_auto/c1b4cf_897f85275c664d40a0f4ef1b0e1c511c~mv2.jpg",
+    front_image_url: "images/free-city-front.jpg",
     back_image_url: "",
     comparison_image_url: "",
     source_url: "https://www.collectorarthouse.com/collectors-corner/curiocards",
@@ -107,7 +111,7 @@
     variant_name: "gilded",
     tell_summary: "Hand-applied gilded highlights with metallic reflectivity and slight texture.",
     tell_details: "Often discussed as Curio vs. separate 'Gilded'/Chase category. We present it as disputed; compare to standard AL Mordred and note raised, metallic accents.",
-    front_image_url: "",
+    front_image_url: "images/al-gilded-mordred-front.jpg",
     back_image_url: "",
     comparison_image_url: "",
     source_url: "https://www.collectorarthouse.com/collectors-corner/curiocards",
@@ -120,6 +124,35 @@
     notes: "If you have permissioned photos, send them and we’ll swap them in."
   }
 ];
+
+// Data loader: supports JSON (default) or CSV via URL param ?data=path
+async function fetchJson(url){
+  const r = await fetch(url, { cache: 'no-store' });
+  if(!r.ok) throw new Error(`Failed to fetch ${url} (${r.status})`);
+  return r.json();
+}
+function fetchCsv(url){
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (res) => resolve(res.data),
+      error: reject,
+    });
+  });
+}
+async function loadCurioData(){
+  const u = new URL(window.location.href);
+  const dataUrl = u.searchParams.get('data') || 'data.json'; // place a data.json in your repo root
+  try {
+    if(dataUrl.toLowerCase().endsWith('.csv')) return await fetchCsv(dataUrl);
+    return await fetchJson(dataUrl);
+  } catch(err){
+    console.warn('Falling back to DEFAULT_DATA:', err?.message || err);
+    return DEFAULT_DATA;
+  }
+}
 
     const BADGE_MAP = {
       curio: "bg-emerald-100 text-emerald-700",
@@ -161,120 +194,163 @@
     }
 
     function App(){
-      const sets = useMemo(() => ["All", ...Array.from(new Set(STARTER_DATA.map(d=>d.set)))], []);
-      const classes = ["All", "curio", "chase", "misprint", "disputed"];
+  const [items, setItems] = React.useState(DEFAULT_DATA);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
 
-      const [filters, setFilters] = useUrlParams({ q: "", set: "All", classification: "All" });
+  React.useEffect(() => {
+    loadCurioData()
+      .then((rows) => {
+        // normalize: ensure required fields exist
+        const norm = (rows || []).map((r, i) => ({
+          id: r.id || `row-${i}`,
+          set: r.set || '',
+          classification: r.classification || 'disputed',
+          card_name: r.card_name || '',
+          artist: r.artist || '',
+          variant_name: r.variant_name || '',
+          tell_summary: r.tell_summary || '',
+          tell_details: r.tell_details || '',
+          front_image_url: r.front_image_url || '',
+          back_image_url: r.back_image_url || '',
+          comparison_image_url: r.comparison_image_url || '',
+          source_url: r.source_url || '',
+          provenance: r.provenance || '',
+          photographer_credit: r.photographer_credit || '',
+          license: r.license || '',
+          owner_handle: r.owner_handle || '',
+          date_added: r.date_added || '',
+          review_status: r.review_status || 'unreviewed',
+          notes: r.notes || '',
+          cta_label: r.cta_label || '',
+          cta_href: r.cta_href || '',
+        }));
+        setItems(norm.length ? norm : DEFAULT_DATA);
+      })
+      .catch((e) => setError(e?.message || String(e)))
+      .finally(() => setLoading(false));
+  }, []);
 
-      const filtered = STARTER_DATA.filter((d) => {
-        const matchesQuery = [d.card_name, d.artist, d.variant_name, d.tell_summary, d.tell_details]
-          .join(" ").toLowerCase().includes((filters.q||"").toLowerCase());
-        const matchesSet = filters.set === "All" || d.set === filters.set;
-        const matchesClass = filters.classification === "All" || d.classification === filters.classification;
-        return matchesQuery && matchesSet && matchesClass;
-      });
+  const sets = React.useMemo(() => ["All", ...Array.from(new Set(items.map(d=>d.set).filter(Boolean)))], [items]);
+  const classes = ["All", "curio", "chase", "misprint", "disputed"];
 
-      return (
-        <>
-          <header className="sticky top-0 z-10 backdrop-blur bg-white/80 border-b">
-            <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-semibold">Sorcery: Curio & Related Card Identifier</h1>
-                <p className="text-sm text-slate-600">Community-built, welcoming to all collectors. Documenting curios, chase cards, misprints, and disputed cases.</p>
+  const [filters, setFilters] = useUrlParams({ q: "", set: "All", classification: "All" });
+
+  const filtered = items.filter((d) => {
+    const matchesQuery = [d.card_name, d.artist, d.variant_name, d.tell_summary, d.tell_details]
+      .join(" ").toLowerCase().includes((filters.q||"").toLowerCase());
+    const matchesSet = filters.set === "All" || d.set === filters.set;
+    const matchesClass = filters.classification === "All" || d.classification === filters.classification;
+    return matchesQuery && matchesSet && matchesClass;
+  });
+
+  if(loading) return <div className="max-w-6xl mx-auto px-4 py-12 text-slate-500">Loading data…</div>;
+  if(error) return <div className="max-w-6xl mx-auto px-4 py-12 text-rose-600">Error loading data: {error}</div>;
+
+  return (
+    <>
+      <header className="sticky top-0 z-10 backdrop-blur bg-white/80 border-b">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-semibold">Sorcery: Curio & Related Card Identifier</h1>
+            <p className="text-sm text-slate-600">Community-built, welcoming to all collectors. Documenting curios, chase cards, misprints, and disputed cases.</p>
+          </div>
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              placeholder="Search name, artist, tell…"
+              className="w-56 md:w-72 px-3 py-2 rounded-xl border outline-none focus:ring"
+              value={filters.q}
+              onChange={(e) => setFilters(f=>({...f, q: e.target.value}))}
+            />
+            <select
+              className="px-3 py-2 rounded-xl border"
+              value={filters.set}
+              onChange={(e) => setFilters(f=>({...f, set: e.target.value}))}
+            >
+              {sets.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select
+              className="px-3 py-2 rounded-xl border"
+              value={filters.classification}
+              onChange={(e) => setFilters(f=>({...f, classification: e.target.value}))}
+            >
+              {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        <section className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filtered.map((d) => (
+            <article key={d.id} className="rounded-2xl border overflow-hidden shadow-sm">
+              <div className="aspect-[4/3] card-img overflow-hidden">
+                <img src={d.front_image_url} alt={`${d.card_name} (${d.variant_name})`} className="w-full h-full object-cover" loading="lazy"/>
               </div>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
-                  placeholder="Search name, artist, tell…"
-                  className="w-56 md:w-72 px-3 py-2 rounded-xl border outline-none focus:ring"
-                  value={filters.q}
-                  onChange={(e) => setFilters(f=>({...f, q: e.target.value}))}
-                />
-                <select
-                  className="px-3 py-2 rounded-xl border"
-                  value={filters.set}
-                  onChange={(e) => setFilters(f=>({...f, set: e.target.value}))}
-                >
-                  {sets.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select
-                  className="px-3 py-2 rounded-xl border"
-                  value={filters.classification}
-                  onChange={(e) => setFilters(f=>({...f, classification: e.target.value}))}
-                >
-                  {classes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-          </header>
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="font-semibold leading-tight">{d.card_name} <span className="text-slate-500">· {d.variant_name}</span></h2>
+                  <Badge label={d.classification} />
+                </div>
+                <div className="text-sm text-slate-600"><span className="font-medium">Set:</span> {d.set} · <span className="font-medium">Artist:</span> {d.artist}</div>
+                <p className="text-sm">{d.tell_summary}</p>
 
-          <main className="max-w-6xl mx-auto px-4 py-8">
-            <section className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filtered.map((d) => (
-                <article key={d.id} className="rounded-2xl border overflow-hidden shadow-sm">
-                  <div className="aspect-[4/3] card-img overflow-hidden">
-                    <img src={d.front_image_url} alt={`${d.card_name} (${d.variant_name})`} className="w-full h-full object-cover" loading="lazy"/>
-                  </div>
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h2 className="font-semibold leading-tight">{d.card_name} <span className="text-slate-500">· {d.variant_name}</span></h2>
-                      <Badge label={d.classification} />
+                <details className="text-sm open:shadow-inner open:bg-slate-50 rounded-xl">
+                  <summary className="cursor-pointer px-3 py-2">Detailed tells & notes</summary>
+                  <div className="px-3 pb-3 space-y-2">
+                    <p>{d.tell_details}</p>
+                    <div className="flex gap-2 flex-wrap text-xs">
+                      {d.source_url && <a href={d.source_url} className="underline" target="_blank" rel="noreferrer">Source</a>}
+                      {d.back_image_url && <a href={d.back_image_url} className="underline" target="_blank" rel="noreferrer">Back photo</a>}
+                      {d.comparison_image_url && <a href={d.comparison_image_url} className="underline" target="_blank" rel="noreferrer">Comparison</a>}
                     </div>
-                    <div className="text-sm text-slate-600"><span className="font-medium">Set:</span> {d.set} · <span className="font-medium">Artist:</span> {d.artist}</div>
-                    <p className="text-sm">{d.tell_summary}</p>
-
-                    <details className="text-sm open:shadow-inner open:bg-slate-50 rounded-xl">
-                      <summary className="cursor-pointer px-3 py-2">Detailed tells & notes</summary>
-                      <div className="px-3 pb-3 space-y-2">
-                        <p>{d.tell_details}</p>
-                        <div className="flex gap-2 flex-wrap text-xs">
-                          {d.source_url && <a href={d.source_url} className="underline" target="_blank" rel="noreferrer">Source</a>}
-                          {d.back_image_url && <a href={d.back_image_url} className="underline" target="_blank" rel="noreferrer">Back photo</a>}
-                          {d.comparison_image_url && <a href={d.comparison_image_url} className="underline" target="_blank" rel="noreferrer">Comparison</a>}
-                        </div>
-                        <div className="text-xs text-slate-500 space-y-1">
-                          <div><span className="font-medium">Provenance:</span> {d.provenance}</div>
-                          <div><span className="font-medium">Credits:</span> {d.photographer_credit} {d.owner_handle ? `· ${d.owner_handle}` : ""}</div>
-                          <div><span className="font-medium">License:</span> {d.license}</div>
-                          <div><span className="font-medium">Review status:</span> {d.review_status}</div>
-                        </div>
-                      </div>
-                    </details>
-
-                    {d.cta_href && (
-                      <a href={d.cta_href} className="inline-flex items-center justify-center px-3 py-2 rounded-xl border font-medium hover:bg-slate-50 text-sm" target="_blank" rel="noreferrer">
-                        {d.cta_label || 'Shop →'}
-                      </a>
-                    )}
+                    <div className="text-xs text-slate-500 space-y-1">
+                      <div><span className="font-medium">Provenance:</span> {d.provenance}</div>
+                      <div><span className="font-medium">Credits:</span> {d.photographer_credit} {d.owner_handle ? `· ${d.owner_handle}` : ""}</div>
+                      <div><span className="font-medium">License:</span> {d.license}</div>
+                      <div><span className="font-medium">Review status:</span> {d.review_status}</div>
+                    </div>
                   </div>
-                </article>
-              ))}
-            </section>
+                </details>
 
-            {filtered.length === 0 && (
-              <p className="text-center text-slate-500">No entries yet. Add items to the data array to populate the gallery.</p>
-            )}
+                {d.cta_href && (
+                  <a href={d.cta_href} className="inline-flex items-center justify-center px-3 py-2 rounded-xl border font-medium hover:bg-slate-50 text-sm" target="_blank" rel="noreferrer">
+                    {d.cta_label || 'Shop →'}
+                  </a>
+                )}
+              </div>
+            </article>
+          ))}
+        </section>
 
-            <section className="mt-12 p-4 md:p-6 rounded-2xl border bg-white">
-              <h3 className="text-lg font-semibold mb-2">How to contribute photos</h3>
-              <ul className="list-disc ml-6 text-sm space-y-1">
-                <li>Front, back, and a side-by-side vs standard printing (if available).</li>
-                <li>Neutral lighting, 3000–5000K; avoid strong reflections; include a 1-inch scale/coin.</li>
-                <li>Minimum 2000 px on the shortest side; JPEG or PNG.</li>
-                <li>State pack/box source (if known). If cropped, keep the original files for verification.</li>
-                <li>Tell us how you want to be credited and what license we can publish under.</li>
-              </ul>
-            </section>
-          </main>
+        {filtered.length === 0 && (
+          <p className="text-center text-slate-500">No entries yet. Add items to your data source to populate the gallery.</p>
+        )}
 
-          <footer className="mt-12 border-t">
-            <div className="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500">
-              This is a community resource. Classifications may be debated; we surface multiple viewpoints and keep a welcoming tone for all collectors.
-            </div>
-          </footer>
-        </>
-      );
-    }
+        <section className="mt-12 p-4 md:p-6 rounded-2xl border bg-white">
+          <h3 className="text-lg font-semibold mb-2">How to contribute photos</h3>
+          <ul className="list-disc ml-6 text-sm space-y-1">
+            <li>Front, back, and a side-by-side vs standard printing (if available).</li>
+            <li>Neutral lighting, 3000–5000K; avoid strong reflections; include a 1-inch scale/coin.</li>
+            <li>Minimum 2000 px on the shortest side; JPEG or PNG.</li>
+            <li>State pack/box source (if known). If cropped, keep the original files for verification.</li>
+            <li>Tell us how you want to be credited and what license we can publish under.</li>
+          </ul>
+        </section>
+      </main>
+
+      <footer className="mt-12 border-t">
+        <div className="max-w-6xl mx-auto px-4 py-6 text-xs text-slate-500">
+          This is a community resource. Classifications may be debated; we surface multiple viewpoints and keep a welcoming tone for all collectors.
+        </div>
+      </footer>
+    </>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
