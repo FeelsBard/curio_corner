@@ -26,7 +26,7 @@
 <body class="min-h-screen bg-white text-slate-800">
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script type="text/babel" data-presets="react">
     const { useMemo, useState, useEffect } = React;
 
     // ---- 🔢 Data model (paste your entries here) ----
@@ -348,12 +348,8 @@ async function loadCurioData(){
     </>
   );
 }
-
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
+</script>
 </body>
 </html>
